@@ -1,0 +1,63 @@
+image: docker:latest
+
+stages:
+  - build
+  - deploy
+
+docker_build:
+  stage: build
+  services:
+    - docker:dind
+  rules:
+    - if: $CI_TAG =~ /^v\d+.\d+/
+      exists:
+        - Dockerfile
+    - when: on_success
+    - when: manual
+  before_script:
+    - echo "Logging into Docker..."
+    - docker login -u "$CI_REG_USER" -p "$CI_REG_PASSWORD"
+  script:
+    - cp $ENV_FILE .env
+    - env
+    - export
+    - tag=$CI_TAG
+    - echo "Running build with tag $tag"
+    - docker build -t avolon2009/diplom:$tag .
+    - docker push avolon2009/diplom:$tag
+
+app_deploy:
+  stage: deploy
+  environment: production
+  image: dtzar/helm-kubectl:latest
+  script:
+    - env
+    - export
+    - tag=$CI_TAG
+    - echo "Deploy app django-pg-docker-tutorial build version $tag"
+    - export KUBECONFIG=config
+    - ls -l $KUBECONFIG || echo "KUBECONFIG not found"
+    - cat $KUBECONFIG || echo "Cannot read KUBECONFIG"
+    - kubectl config current-context || echo "Cannot get current context"
+    - kubectl cluster-info || echo "Cannot connect to cluster"
+    # Удаление старого секрета (если существует)
+    - kubectl delete secret credentials -n diplom || echo "Secret credentials does not exist"
+    # Обновление метаданных для PersistentVolume и PersistentVolumeClaim
+    - kubectl annotate pv pg-data-pv meta.helm.sh/release-name=app-dpdt --overwrite
+    - kubectl annotate pv pg-data-pv meta.helm.sh/release-namespace=diplom --overwrite
+    - kubectl label pv pg-data-pv app.kubernetes.io/managed-by=Helm --overwrite || echo "PV not labeled"
+    - kubectl annotate pvc pg-data-pv-claim meta.helm.sh/release-name=app-dpdt --namespace diplom --overwrite
+    - kubectl annotate pvc pg-data-pv-claim meta.helm.sh/release-namespace=diplom --namespace diplom --overwrite
+    - kubectl label pvc pg-data-pv-claim app.kubernetes.io/managed-by=Helm --namespace diplom --overwrite || echo "PVC not labeled"
+    # Обновление метаданных для Services
+    - kubectl annotate service app meta.helm.sh/release-name=app-dpdt --namespace diplom --overwrite
+    - kubectl annotate service app meta.helm.sh/release-namespace=diplom --namespace diplom --overwrite
+    - kubectl label service app app.kubernetes.io/managed-by=Helm --namespace diplom --overwrite
+    - kubectl annotate service db meta.helm.sh/release-name=app-dpdt --namespace diplom --overwrite
+    - kubectl annotate service db meta.helm.sh/release-namespace=diplom --namespace diplom --overwrite
+    - kubectl label service db app.kubernetes.io/managed-by=Helm --namespace diplom --overwrite
+    # Установка/обновление Helm релиза
+    - cd app-dpdt/
+    - helm upgrade --install -n diplom --values templates/credentials.yaml --set service.type=NodePort app-dpdt . --debug
+    - kubectl get pods -n $CI_NAMESPACE
+    
