@@ -45,7 +45,7 @@ Jenkins или GitHub Actions — кому что нравится. Рекоме
   ```
   - В рамках подзадачи в роли Docker registry будем использовать Dockerhub. Логинимся в Dockerhub.
   ```
-  docker login -u mikhailrizhkin1
+  docker login -u avolon.linux@gmail.com
   ```
   - Cоздаёми там репозиторий для хранения артифакта сборки. В нашем случае это: avolon2009/diplom
   
